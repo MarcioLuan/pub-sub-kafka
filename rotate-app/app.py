@@ -1,13 +1,15 @@
 from PIL import Image, ImageOps
 import os
-from confluent_kafka import Consumer, KafkaError
+from confluent_kafka import Consumer, KafkaError, Producer
 import json
 import logging
 from time import sleep
+from uuid import uuid4
 
 OUT_FOLDER = '/processed/rotate/'
 NEW = '_rotate'
 IN_FOLDER = "/appdata/static/uploads/"
+TOPIC_PRODUCE='notification'
 
 def create_rotate(path_file):
     pathname, filename = os.path.split(path_file)
@@ -21,6 +23,34 @@ def create_rotate(path_file):
 
     name, ext = os.path.splitext(filename)
     transposed.save(output_folder + name + NEW + ext)
+
+def get_json_str(filename):
+    d = {
+        'new_file': filename,
+        'operation' : 'rotate',
+        'message' : f'Sua imagem {filename} foi rotacionada!'
+    }
+    return json.dumps(d)
+
+def delivery_report(errmsg, data):
+    """
+    Reports the Failure or Success of a message delivery.
+    Args:
+        errmsg  (KafkaError): The Error that occured while message producing.
+        data    (Actual message): The message that was produced.
+    Note:
+        In the delivery report callback the Message.key() and Message.value()
+        will be the binary format as encoded by any configured Serializers and
+        not the same object that was passed to produce().
+        If you wish to pass the original object(s) for key and value to delivery
+        report callback we recommend a bound callback or lambda where you pass
+        the objects along.
+    """
+    if errmsg is not None:
+        print("Delivery failed for Message: {} : {}".format(data.key(), errmsg))
+        return
+    print('Message: {} successfully produced to Topic: {} Partition: [{}] at offset {}'.format(
+        data.key(), data.topic(), data.partition(), data.offset()))
 
 
 #sleep(30)
@@ -36,6 +66,8 @@ c = Consumer({
 
 c.subscribe(['image'])
 #{"timestamp": 1649288146.3453217, "new_file": "9PKAyoN.jpeg"}
+p = Producer({'bootstrap.servers': 'kafka1:19091,kafka2:19092,kafka3:19093'})
+
 
 try:
     while True:
@@ -47,6 +79,8 @@ try:
             filename = data['new_file']
             logging.warning(f"READING {filename}")
             create_rotate(IN_FOLDER + filename)
+            p.produce(TOPIC_PRODUCE, key=str(uuid4()), value=get_json_str(filename), on_delivery=delivery_report)
+            p.flush()
             logging.warning(f"ENDING {filename}")
         elif msg.error().code() == KafkaError._PARTITION_EOF:
             logging.warning('End of partition reached {0}/{1}'

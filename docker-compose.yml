@@ -35,6 +35,14 @@ services:
     depends_on:
       - kafka1
 
+  notificator:
+    build: notificator-app
+    container_name: notificator
+    volumes:
+      - ./appdata:/appdata
+    depends_on:
+      - kafka1
+
   zookeeper:
     image: zookeeper:3.4.9
     hostname: zookeeper
